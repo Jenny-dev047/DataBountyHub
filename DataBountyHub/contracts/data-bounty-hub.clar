@@ -1,10 +1,6 @@
 ;; DataBountyHub - Marketplace for AI training data bounties
 ;; Researchers post bounties, contributors submit data for rewards
 
-;; ================================
-;; SECTION 1: CONSTANTS & DATA STRUCTURES
-;; ================================
-
 (define-constant CONTRACT-OWNER tx-sender)
 (define-constant ERR-NOT-AUTHORIZED (err u100))
 (define-constant ERR-BOUNTY-NOT-FOUND (err u101))
@@ -85,7 +81,7 @@
   (let
     (
       (bounty-id (+ (var-get bounty-count) u1))
-      (deadline (+ block-height duration))
+      (deadline (+ stacks-block-height duration))
       (platform-fee (/ (* reward PLATFORM-FEE-PCT) u100))
       (total-cost (+ reward platform-fee))
     )
@@ -106,7 +102,7 @@
         completed: false,
         data-type: data-type,
         category: category,
-        created-at: block-height,
+        created-at: stacks-block-height,
         total-submissions: u0,
         featured: false
       }
@@ -127,7 +123,7 @@
       (submission-id (+ (var-get submission-count) u1))
       (existing-submission (map-get? user-submissions { bounty-id: bounty-id, contributor: tx-sender }))
     )
-    (asserts! (< block-height (get deadline bounty)) ERR-BOUNTY-EXPIRED)
+    (asserts! (< stacks-block-height (get deadline bounty)) ERR-BOUNTY-EXPIRED)
     (asserts! (not (get completed bounty)) ERR-BOUNTY-NOT-FOUND)
     (asserts! (is-none existing-submission) ERR-ALREADY-SUBMITTED)
     
@@ -138,7 +134,7 @@
         contributor: tx-sender,
         data-hash: data-hash,
         approved: false,
-        submitted-at: block-height,
+        submitted-at: stacks-block-height,
         rating: none,
         feedback: none
       }
@@ -317,7 +313,7 @@
   (match (map-get? bounties { bounty-id: bounty-id })
     bounty (and 
       (not (get completed bounty))
-      (< block-height (get deadline bounty))
+      (< stacks-block-height (get deadline bounty))
     )
     false
   )
@@ -389,16 +385,16 @@
   (let
     (
       (current-stats (get-user-stats user))
-      (submissions (get submissions-made current-stats))
+      (current-submission-count (get submissions-made current-stats))
       (current-avg (get average-rating current-stats))
       (new-avg (if (is-eq current-avg u0)
                  rating
-                 (/ (+ (* current-avg submissions) rating) (+ submissions u1))
+                 (/ (+ (* current-avg current-submission-count) rating) (+ current-submission-count u1))
                ))
       (new-reputation (calculate-reputation-score 
                         (+ (get total-earned current-stats) amount)
                         new-avg
-                        (+ submissions u1)
+                        (+ current-submission-count u1)
                       ))
     )
     (map-set user-stats
@@ -413,12 +409,12 @@
 )
 
 ;; Calculate reputation score based on earnings, ratings, and activity
-(define-private (calculate-reputation-score (total-earned uint) (avg-rating uint) (submissions uint))
+(define-private (calculate-reputation-score (total-earned uint) (avg-rating uint) (user-submission-count uint))
   (let
     (
       (earning-factor (/ total-earned u1000000)) ;; Divide by 1 STX for scaling
       (rating-factor (* avg-rating u10))
-      (activity-factor (min submissions u50)) ;; Cap at 50 for diminishing returns
+      (activity-factor (if (<= user-submission-count u50) user-submission-count u50)) ;; Cap at 50 for diminishing returns
     )
     (+ earning-factor rating-factor activity-factor)
   )
