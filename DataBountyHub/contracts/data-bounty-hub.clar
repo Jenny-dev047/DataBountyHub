@@ -181,3 +181,76 @@
     (ok true)
   )
 )
+
+;; Approve submission and pay reward with rating
+(define-public (approve-submission (submission-id uint) (rating uint) (feedback (optional (string-ascii 200))))
+  (let
+    (
+      (submission (unwrap! (map-get? submissions { submission-id: submission-id }) ERR-BOUNTY-NOT-FOUND))
+      (bounty (unwrap! (map-get? bounties { bounty-id: (get bounty-id submission) }) ERR-BOUNTY-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender (get creator bounty)) ERR-NOT-AUTHORIZED)
+    (asserts! (not (get approved submission)) ERR-NOT-AUTHORIZED)
+    (asserts! (not (get completed bounty)) ERR-BOUNTY-NOT-FOUND)
+    (asserts! (and (>= rating u1) (<= rating u5)) ERR-INVALID-RATING)
+    
+    (try! (as-contract (stx-transfer? (get reward bounty) tx-sender (get contributor submission))))
+    
+    (map-set submissions
+      { submission-id: submission-id }
+      (merge submission { 
+        approved: true, 
+        rating: (some rating),
+        feedback: feedback
+      })
+    )
+    
+    (map-set bounties
+      { bounty-id: (get bounty-id submission) }
+      (merge bounty { completed: true })
+    )
+    
+    (update-user-stats-earned (get contributor submission) (get reward bounty) rating)
+    (ok true)
+  )
+)
+
+;; Reject submission with feedback
+(define-public (reject-submission (submission-id uint) (feedback (string-ascii 200)))
+  (let
+    (
+      (submission (unwrap! (map-get? submissions { submission-id: submission-id }) ERR-BOUNTY-NOT-FOUND))
+      (bounty (unwrap! (map-get? bounties { bounty-id: (get bounty-id submission) }) ERR-BOUNTY-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender (get creator bounty)) ERR-NOT-AUTHORIZED)
+    (asserts! (not (get approved submission)) ERR-NOT-AUTHORIZED)
+    
+    (map-set submissions
+      { submission-id: submission-id }
+      (merge submission { feedback: (some feedback) })
+    )
+    
+    (ok true)
+  )
+)
+
+;; Rate a completed submission (additional rating system)
+(define-public (rate-submission (submission-id uint) (rating uint))
+  (let
+    (
+      (submission (unwrap! (map-get? submissions { submission-id: submission-id }) ERR-BOUNTY-NOT-FOUND))
+      (bounty (unwrap! (map-get? bounties { bounty-id: (get bounty-id submission) }) ERR-BOUNTY-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender (get creator bounty)) ERR-NOT-AUTHORIZED)
+    (asserts! (get approved submission) ERR-SUBMISSION-NOT-APPROVED)
+    (asserts! (and (>= rating u1) (<= rating u5)) ERR-INVALID-RATING)
+    (asserts! (is-none (get rating submission)) ERR-ALREADY-RATED)
+    
+    (map-set submissions
+      { submission-id: submission-id }
+      (merge submission { rating: (some rating) })
+    )
+    
+    (ok true)
+  )
+)
