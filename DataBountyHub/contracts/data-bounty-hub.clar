@@ -254,3 +254,71 @@
     (ok true)
   )
 )
+
+;; Get bounty details
+(define-read-only (get-bounty (bounty-id uint))
+  (map-get? bounties { bounty-id: bounty-id })
+)
+
+;; Get submission details
+(define-read-only (get-submission (submission-id uint))
+  (map-get? submissions { submission-id: submission-id })
+)
+
+;; Check if user has submitted to bounty
+(define-read-only (has-submitted (bounty-id uint) (contributor principal))
+  (default-to { submitted: false } (map-get? user-submissions { bounty-id: bounty-id, contributor: contributor }))
+)
+
+;; Get total bounties count
+(define-read-only (get-bounty-count)
+  (var-get bounty-count)
+)
+
+;; Get total submissions count
+(define-read-only (get-submission-count)
+  (var-get submission-count)
+)
+
+;; Get platform statistics
+(define-read-only (get-platform-stats)
+  {
+    total-bounties: (var-get bounty-count),
+    total-submissions: (var-get submission-count),
+    total-volume: (var-get total-volume),
+    platform-treasury: (var-get platform-treasury)
+  }
+)
+
+;; Get user statistics
+(define-read-only (get-user-stats (user principal))
+  (default-to 
+    {
+      bounties-created: u0,
+      submissions-made: u0,
+      total-earned: u0,
+      total-spent: u0,
+      average-rating: u0,
+      reputation-score: u0
+    }
+    (map-get? user-stats { user: user })
+  )
+)
+
+;; Get bounties by category
+(define-read-only (get-bounties-by-category (category (string-ascii 30)))
+  ;; This would return a list in a full implementation
+  ;; For now, returns if category is valid
+  (is-valid-category category)
+)
+
+;; Check if bounty is active (not completed and not expired)
+(define-read-only (is-bounty-active (bounty-id uint))
+  (match (map-get? bounties { bounty-id: bounty-id })
+    bounty (and 
+      (not (get completed bounty))
+      (< block-height (get deadline bounty))
+    )
+    false
+  )
+)
