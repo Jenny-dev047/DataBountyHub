@@ -322,3 +322,116 @@
     false
   )
 )
+
+;; Admin function to feature/unfeature bounties
+(define-public (set-bounty-featured (bounty-id uint) (featured bool))
+  (let
+    (
+      (bounty (unwrap! (map-get? bounties { bounty-id: bounty-id }) ERR-BOUNTY-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    
+    (map-set bounties
+      { bounty-id: bounty-id }
+      (merge bounty { featured: featured })
+    )
+    
+    (ok true)
+  )
+)
+
+;; Admin function to withdraw platform fees
+(define-public (withdraw-platform-fees (amount uint))
+  (begin
+    (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (<= amount (var-get platform-treasury)) ERR-INSUFFICIENT-FUNDS)
+    
+    (try! (as-contract (stx-transfer? amount tx-sender CONTRACT-OWNER)))
+    (var-set platform-treasury (- (var-get platform-treasury) amount))
+    
+    (ok true)
+  )
+)
+
+;; Update user statistics when creating bounty
+(define-private (update-user-stats-bounty-created (user principal) (amount uint))
+  (let
+    (
+      (current-stats (get-user-stats user))
+    )
+    (map-set user-stats
+      { user: user }
+      (merge current-stats {
+        bounties-created: (+ (get bounties-created current-stats) u1),
+        total-spent: (+ (get total-spent current-stats) amount)
+      })
+    )
+  )
+)
+
+;; Update user statistics when making submission
+(define-private (update-user-stats-submission-made (user principal))
+  (let
+    (
+      (current-stats (get-user-stats user))
+    )
+    (map-set user-stats
+      { user: user }
+      (merge current-stats {
+        submissions-made: (+ (get submissions-made current-stats) u1)
+      })
+    )
+  )
+)
+
+;; Update user statistics when earning from approved submission
+(define-private (update-user-stats-earned (user principal) (amount uint) (rating uint))
+  (let
+    (
+      (current-stats (get-user-stats user))
+      (submissions (get submissions-made current-stats))
+      (current-avg (get average-rating current-stats))
+      (new-avg (if (is-eq current-avg u0)
+                 rating
+                 (/ (+ (* current-avg submissions) rating) (+ submissions u1))
+               ))
+      (new-reputation (calculate-reputation-score 
+                        (+ (get total-earned current-stats) amount)
+                        new-avg
+                        (+ submissions u1)
+                      ))
+    )
+    (map-set user-stats
+      { user: user }
+      (merge current-stats {
+        total-earned: (+ (get total-earned current-stats) amount),
+        average-rating: new-avg,
+        reputation-score: new-reputation
+      })
+    )
+  )
+)
+
+;; Calculate reputation score based on earnings, ratings, and activity
+(define-private (calculate-reputation-score (total-earned uint) (avg-rating uint) (submissions uint))
+  (let
+    (
+      (earning-factor (/ total-earned u1000000)) ;; Divide by 1 STX for scaling
+      (rating-factor (* avg-rating u10))
+      (activity-factor (min submissions u50)) ;; Cap at 50 for diminishing returns
+    )
+    (+ earning-factor rating-factor activity-factor)
+  )
+)
+
+;; Validate category
+(define-private (is-valid-category (category (string-ascii 30)))
+  (or
+    (is-eq category "computer-vision")
+    (is-eq category "natural-language")
+    (is-eq category "audio-processing")
+    (is-eq category "structured-data")
+    (is-eq category "multimodal")
+    (is-eq category "other")
+  )
+)
