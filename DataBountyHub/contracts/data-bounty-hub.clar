@@ -73,3 +73,111 @@
     reputation-score: uint
   }
 )
+
+;; Create a new data bounty with enhanced features
+(define-public (create-bounty 
+  (title (string-ascii 100)) 
+  (description (string-ascii 500))
+  (reward uint)
+  (duration uint)
+  (data-type (string-ascii 50))
+  (category (string-ascii 30)))
+  (let
+    (
+      (bounty-id (+ (var-get bounty-count) u1))
+      (deadline (+ block-height duration))
+      (platform-fee (/ (* reward PLATFORM-FEE-PCT) u100))
+      (total-cost (+ reward platform-fee))
+    )
+    (asserts! (>= reward MIN-REWARD) ERR-MIN-REWARD-NOT-MET)
+    (asserts! (is-valid-category category) ERR-INVALID-CATEGORY)
+    
+    (try! (stx-transfer? total-cost tx-sender (as-contract tx-sender)))
+    (var-set platform-treasury (+ (var-get platform-treasury) platform-fee))
+    
+    (map-set bounties
+      { bounty-id: bounty-id }
+      {
+        title: title,
+        description: description,
+        reward: reward,
+        creator: tx-sender,
+        deadline: deadline,
+        completed: false,
+        data-type: data-type,
+        category: category,
+        created-at: block-height,
+        total-submissions: u0,
+        featured: false
+      }
+    )
+    
+    (update-user-stats-bounty-created tx-sender reward)
+    (var-set bounty-count bounty-id)
+    (var-set total-volume (+ (var-get total-volume) reward))
+    (ok bounty-id)
+  )
+)
+
+;; Submit data for a bounty with enhanced validation
+(define-public (submit-data (bounty-id uint) (data-hash (buff 32)))
+  (let
+    (
+      (bounty (unwrap! (map-get? bounties { bounty-id: bounty-id }) ERR-BOUNTY-NOT-FOUND))
+      (submission-id (+ (var-get submission-count) u1))
+      (existing-submission (map-get? user-submissions { bounty-id: bounty-id, contributor: tx-sender }))
+    )
+    (asserts! (< block-height (get deadline bounty)) ERR-BOUNTY-EXPIRED)
+    (asserts! (not (get completed bounty)) ERR-BOUNTY-NOT-FOUND)
+    (asserts! (is-none existing-submission) ERR-ALREADY-SUBMITTED)
+    
+    (map-set submissions
+      { submission-id: submission-id }
+      {
+        bounty-id: bounty-id,
+        contributor: tx-sender,
+        data-hash: data-hash,
+        approved: false,
+        submitted-at: block-height,
+        rating: none,
+        feedback: none
+      }
+    )
+    
+    (map-set user-submissions
+      { bounty-id: bounty-id, contributor: tx-sender }
+      { submitted: true }
+    )
+    
+    ;; Update bounty submission count
+    (map-set bounties
+      { bounty-id: bounty-id }
+      (merge bounty { total-submissions: (+ (get total-submissions bounty) u1) })
+    )
+    
+    (update-user-stats-submission-made tx-sender)
+    (var-set submission-count submission-id)
+    (ok submission-id)
+  )
+)
+
+;; Cancel bounty (only if no approved submissions)
+(define-public (cancel-bounty (bounty-id uint))
+  (let
+    (
+      (bounty (unwrap! (map-get? bounties { bounty-id: bounty-id }) ERR-BOUNTY-NOT-FOUND))
+    )
+    (asserts! (is-eq tx-sender (get creator bounty)) ERR-NOT-AUTHORIZED)
+    (asserts! (not (get completed bounty)) ERR-BOUNTY-NOT-FOUND)
+    
+    ;; Refund the reward
+    (try! (as-contract (stx-transfer? (get reward bounty) tx-sender (get creator bounty))))
+    
+    (map-set bounties
+      { bounty-id: bounty-id }
+      (merge bounty { completed: true })
+    )
+    
+    (ok true)
+  )
+)
